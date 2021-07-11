@@ -1,0 +1,122 @@
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color:white;
+  text-align: center;
+  display: block;
+  margin: 0%;
+  width: 100%;
+  height: 100%;
+}
+
+#main-content
+{
+  position: absolute;
+  margin: 0%;
+  min-width: 100%;
+  min-height: 100%;
+  background-color: black;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#monitor
+{
+  position: relative;
+  background-color: red;
+  max-width: 60%;
+  max-height: auto;
+  margin: 10px;
+  border-radius:15px;
+  display: inline-block;
+  overflow: hidden;
+}
+
+.controller
+{
+  position: relative;
+  background-color: dimgray;
+  margin: 10px;
+  padding: 5px;
+  text-align: center;
+  max-width: 40%;
+  border-radius:15px;
+  display: inline-block;
+  overflow: hidden;
+}
+
+#muteController
+{
+  background-color: gray;
+  margin: 10px;
+  position: relative;
+  overflow: hidden;
+  border-radius:7px;
+}
+
+#sceneController
+{
+  background-color: gray;
+  margin: 10px;
+  position: relative;
+  overflow: hidden;  
+  border-radius:7px;
+}
+
+#recordController
+{
+  background-color: gray;
+  margin: 10px;
+  position: relative;
+  overflow: hidden;  
+  border-radius:7px;
+}
+
+#liveController
+{
+  background-color: gray;
+  margin: 10px;
+  position: relative;
+  overflow: hidden;  
+  border-radius:7px;
+}
+
+#liveButton
+{
+  width: 75px;
+  height: 40px;
+  top: auto;
+  bottom: 10px;
+  left: 0;
+  right: 0;
+  padding: 0px;
+  margin: 5px;  
+  border-radius:7px;
+}
+
+#recButton
+{
+  width: 75px;
+  height: 40px;
+  top: auto;
+  bottom: 10px;
+  left: 0;
+  right: 0;
+  padding: 0px;
+  margin: 5px;  
+  border-radius:7px;  
+}
+
+.areaInfo
+{
+  margin: -5px;
+}
+
+#livePreview
+{
+  position: relative;
+  max-width: 90%;
+  max-height: auto;
+  margin: 10px;
+}
+

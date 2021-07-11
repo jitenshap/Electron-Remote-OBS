@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+  <script src="./communication.js"></script>
+  <head>
+    <meta charset="UTF-8">
+    <title>OBS Remote</title>
+    <link rel="stylesheet" href="index.css">
+  </head>
+  <body>
+    <div id="main-content">
+      <div id="monitor">
+        <video id="livePreview" autoplay muted playsinline></video>
+      </div>
+      <div id="controller" class="controller">
+        <div id="muteController">
+        </div>
+        <div id="sceneController">
+        </div>
+        <div id="recordController">
+          <input id="recButton" value="REC Start" type="button"></input>
+          <div id="recTimecode"></div>
+          <div id="recPath"></div>
+        </div>
+        <div id="liveController">
+          <input id="liveButton" value="LIVE Start" type="button"></input>
+          <div id="liveTimecode"></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

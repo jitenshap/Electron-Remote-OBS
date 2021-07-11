@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC P2P</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: auto;
+            max-width: 38rem;
+            padding: 5px;
+            color:white;
+            background-color: black;
+            text-align: center;
+        }
+        #monitor
+        {
+            position: relative;
+            background-color: red;
+            max-width: 60%;
+            max-height: auto;
+            margin: 10px;
+            margin-left: auto;
+            margin-right: auto;
+            border-radius:15px;
+        }
+        .controller
+        {
+            position: relative;
+            background-color: dimgray;
+            margin: 5px;
+            margin-left: auto;
+            margin-right: auto;
+            padding: 5px;
+            text-align: center;
+            width: fit-content;
+            height: fit-content;
+            border-radius:15px;
+        }
+
+        #muteController
+        {
+        background-color: gray;
+        margin: 10px;
+        position: relative;
+        overflow: hidden;
+        border-radius:7px;
+        }
+
+        #sceneController
+        {
+        background-color: gray;
+        margin: 10px;
+        position: relative;
+        overflow: hidden;  
+        border-radius:7px;
+        }
+
+        .areaInfo
+        {
+            margin: -5px;
+        }
+
+        #remote-video
+        {
+            max-width: 90%;
+            max-height: auto;
+            margin: 10px;
+        }
+
+        .outlined-button 
+        {
+            background-color: #2196f3;
+            border-radius: 4px;
+            border: none;
+            color: #fff;
+            font-size: 16px;
+            font-weight: 600;
+            line-height: 36px;
+            margin-left: 4px;
+            outline: none;
+            padding: 0 16px;
+            text-align: center;
+        }
+
+        #recordController
+        {
+        background-color: gray;
+        margin: 10px;
+        position: relative;
+        overflow: hidden;  
+        border-radius:7px;
+        }
+
+        #liveController
+        {
+        background-color: gray;
+        margin: 10px;
+        position: relative;
+        overflow: hidden;  
+        border-radius:7px;
+        }
+
+        .liveButton
+        {
+            width: 75px;
+            height: 40px;
+            top: auto;
+            bottom: 10px;
+            left: 0;
+            right: 0;
+            padding: 0px;
+            margin: 5px;  
+            border-radius:7px;            
+        }
+        .recButton
+        {
+            width: 75px;
+            height: 40px;
+            top: auto;
+            bottom: 10px;
+            left: 0;
+            right: 0;
+            padding: 0px;
+            margin: 5px;  
+            border-radius:7px;            
+        }
+    </style>
+</head>
+<body>
+    <div>
+    </div>
+    <div id="monitor">
+        <video id="remote-video" muted autoplay playsinline class="video-box"></video>
+    </div>
+    <div id="controller" class="controller">
+        <div id="muteController">
+        </div>
+        <div id="sceneController">
+        </div>
+        <div id="recordController">
+            <input id="recButton" value="REC Start" type="button"></input>
+            <div id="recTimecode"></div>
+            <div id="recPath"></div>
+        </div>
+        <div id="liveController">
+            <input id="liveButton" value="LIVE Start" type="button"></input>
+            <div id="liveTimecode"></div>
+        </div>
+    </div>
+
+<script type="text/javascript">
+    const host = location.hostname;
+    window.onload = function()
+    {
+        let localStream = null;
+        let remoteVideo = document.getElementById('remote-video');
+        remoteVideo.onplay = function()
+        {
+            document.getElementById("monitor").style.backgroundColor = "gray";
+        }
+        let currentMessageId = 0;
+        const clientName = "REMOTE";
+        let audioSources = [];
+        let lastScene = "";
+
+        const wsUrl = 'ws://' + host + ':3010';
+        let ws = null;
+        let reconnect;
+
+        function connectSocket()
+        {
+            let polling = null;
+            let peerConnection = null;
+            RTCPeerConnection = window.RTCPeerConnection;
+            let dataChannel = null;
+
+            function sendOBS(command)
+            {
+                dataChannel.send(JSON.stringify(command));
+            }
+
+            function hangUp() 
+            {
+                if (peerConnection) 
+                {
+                    peerConnection.close();
+                    peerConnection = null;
+                    remoteVideo.pause();
+                    remoteVideo.srcObject = null;
+                }
+            }
+
+            function pollStatus()
+            {
+                if(polling == null)
+                {
+                    polling = setInterval(function()
+                    {
+                        let command = {};
+                        command["message-id"] = currentMessageId.toString();
+                        command["request-type"] = "GetRecordingStatus";
+                        sendOBS(command);
+                        currentMessageId ++;
+                    }, 1000);    
+                }
+            }
+
+
+            recButton.onclick = function()
+            {
+                let cmd = {};
+                cmd["message-id"] = currentMessageId.toString();
+                cmd["request-type"] = "StartStopRecording";
+                sendOBS(cmd);
+                currentMessageId ++;
+            }
+
+            liveButton.onclick = function()
+            {
+                let cmd = {};
+                cmd["message-id"] = currentMessageId.toString();
+                cmd["request-type"] = "StartStopStreaming";
+                sendOBS(cmd);
+                currentMessageId ++;    
+            }
+
+            function resetScenes()
+            {
+                return new Promise(function(resolve,reject)
+                {
+                    while(true)
+                    {
+                        if(sceneController.firstChild == null || sceneController.firstChild == undefined)
+                        {
+                            console.log("flushed scenes");
+                            resolve(sceneController.innerHTML);
+                            break;
+                        }
+                        else
+                        {
+                            sceneController.removeChild(sceneController.firstChild);
+                        }
+                    }
+                });
+            }
+
+            function resetMutes()
+            {
+                return new Promise(function(resolve,reject)
+                {
+                    while(true)
+                    {
+                        if(muteController.firstChild == null || muteController.firstChild == undefined)
+                        {
+                            console.log("flushed mutes");
+                            resolve(muteController.innerHTML);
+                            break;
+                        }
+                        else
+                        {
+                            muteController.removeChild(muteController.firstChild);
+                        }
+                    }
+                });
+            }
+
+            async function setScenes(scenes)
+            {
+                resetScenes().then(function(resolve, reject)
+                {
+                    scenes.forEach(function(scene)
+                    {
+                        console.log("Adding scene: " + scene);
+                        let description = document.createElement("div");
+                        description.style.color = "white";
+                        description.style.backgroundColor = "black";
+                        description.style.float = "left";
+                        description.style.width = "100px";
+                        description.style.height = "80px";
+                        description.style.margin = "5px";
+                        description.style.padding = "5px";
+                        description.style.textAlign = "center";
+                        description.style.position = "relative";
+                        description.style["border-radius"] = "7px";
+                        description.innerHTML = scene.name + "<br>";
+                        sceneController.appendChild(description);
+                        let button = document.createElement("input");
+                        button.type = "button";
+                        button.value = "";
+                        button.class = "squareButton";
+                        button.id = (scene.name.replace(/ /g, '') + "Scene");
+                        if(button.id == lastScene)
+                        {
+                            button.style.backgroundColor = "orange";
+                        }
+                        else
+                        {
+                            button.style.backgroundColor = "gray";
+                        }
+                        button.style.position = "absolute";
+                        button.style.width = "75px";
+                        button.style.height = "40px";
+                        button.style.top = "auto";
+                        button.style.bottom = "10px";
+                        button.style.left = "0";
+                        button.style.right = "0";
+                        button.style.padding = "0px";
+                        button.style.margin = "auto";
+                        button.style["border-radius"] = "7px";
+                        button.addEventListener("click", function()
+                        {
+                            let cmd = {};
+                            cmd["message-id"] = currentMessageId.toString();
+                            cmd["request-type"] = "SetCurrentScene";
+                            cmd["scene-name"] = scene.name;
+                            sendOBS(cmd);
+                            currentMessageId ++;
+                        });
+                        description.appendChild(button);
+                    });
+            
+                });
+
+            }
+
+            async function setMutes(sources)
+            {
+                resetMutes().then(function(resolve, reject)
+                {
+                    sources.forEach(function(source)
+                    {
+                        if(source.typeId == "wasapi_output_capture" || source.typeId == "wasapi_input_capture")
+                        {
+                            console.log("Adding scene: " + source.name);
+                            let command = {};
+                            audioSources.push(source.name);
+                            let description = document.createElement("div");
+                            description.style.color = "white";
+                            description.style.backgroundColor = "black";
+                            description.style.float = "left";
+                            description.style.width = "100px";
+                            description.style.height = "100px";
+                            description.style.margin = "10px";
+                            description.style.padding = "5px";
+                            description.style.textAlign = "center";
+                            description.style.position = "relative";
+                            description.style["border-radius"] = "7px";
+                            description.innerHTML = source.name + "<br>";
+                            muteController.appendChild(description);
+                            let button = document.createElement("input");
+                            button.type = "button";
+                            button.value = "Mute";
+                            button.class = "squareButton";
+                            button.id = source.name + "Mute";
+                            button.backgroundColor = "gray";
+                            button.style.position = "absolute";
+                            button.style.width = "75px";
+                            button.style.height = "40px";
+                            button.style.top = "auto";
+                            button.style.bottom = "10px";
+                            button.style.left = "0";
+                            button.style.right = "0";
+                            button.style.padding = "0px";
+                            button.style.margin = "auto";
+                            button.style["border-radius"] = "7px";
+                            button.addEventListener("click", function()
+                                {
+                                    let cmd = {};
+                                    cmd["message-id"] = currentMessageId.toString();
+                                    cmd["request-type"] = "SetMute";
+                                    cmd["source"] = source.name;
+                                    if(button.style.backgroundColor == "orange")
+                                    {
+                                        cmd["mute"] = false;    
+                                    }
+                                    else
+                                    {
+                                        cmd["mute"] = true;
+                                    }
+                                    sendOBS(cmd);
+                                    currentMessageId ++;
+                                }
+                            );
+                            description.appendChild(button);
+                            command["message-id"] = currentMessageId.toString();
+                            command["request-type"] = "GetMute";
+                            command["source"] = source.name;
+                            sendOBS(command);
+                            currentMessageId ++;    
+                        }                        
+                    });
+                });
+            }
+
+            function prepareNewConnection() 
+            {
+                let pcConfig = {"iceServers":[]};
+                let peer = new RTCPeerConnection(pcConfig);
+
+                if ('ontrack' in peer) 
+                {
+                    console.log('-- ontrack');
+                    peer.ontrack = function(event) 
+                    {
+                        let stream = event.streams[0];
+                        remoteVideo.srcObject = stream;
+                        remoteVideo.play();
+                        document.getElementById("monitor").style.backgroundColor = "gray";
+                    };
+                } 
+                else 
+                {
+                    console.log('-- onaddstream');
+                    peer.onaddstream = function(event) 
+                    {
+                        let stream = event.stream;
+                        remoteVideo.srcObject = stream;
+                        remoteVideo.play();
+                        document.getElementById("monitor").style.backgroundColor = "gray";
+                    }
+                }
+
+                peer.onicecandidate = function(event) 
+                {
+                    if (event.candidate) 
+                    {
+                        // Trickle ICE > ICE candidateを送る.
+                        sendIceCandidate(event.candidate);
+
+                        // Vanilla ICE > 何もしない.
+                    } else {
+                        // Trickle ICE > 何もしない.
+
+                        // Vanilla ICE > candidateを含んだSDPを送る.
+                        //sendSdp(peer.localDescription);
+                    }
+                }
+
+                peer.oniceconnectionstatechange = function() 
+                {
+                    if (peer.iceConnectionState === 'disconnected') 
+                    {
+                        document.getElementById("monitor").style.backgroundColor = "red";
+                        hangUp();
+                    }
+                };
+
+                peer.onremovestream = function(event) 
+                {
+                    remoteVideo.pause();
+                    remoteVideo.srcObject = null;
+                }
+
+                peer.addTransceiver('video', { direction: 'recvonly' });
+                peer.addTransceiver('audio', { direction: 'recvonly' });
+
+                dataChannel = peer.createDataChannel("OBS");
+                dataChannel.onmessage = function(evt)
+                {
+                    let json = JSON.parse(evt.data);
+                    console.log(json);
+                    if(json["update-type"] == "SourceMuteStateChanged")
+                    {
+                        let muteButton = document.getElementById(json.sourceName + "Mute");
+                        if(json.muted)
+                        {
+                            muteButton.style.backgroundColor = "orange";
+                            muteButton.value = "Unmute";
+                        }
+                        else
+                        {
+                            muteButton.style.backgroundColor = "gray";
+                            muteButton.value = "Mute";
+                        }    
+                    }
+                    else if(json["update-type"] == "SwitchScenes")
+                    {
+                        console.log("FL: " + lastScene);
+                        let currentScene = json["scene-name"].replace(/ /g, '') + "Scene";
+                        let currentSceneButton = document.getElementById(currentScene);
+                        currentSceneButton.style.backgroundColor = "orange";
+                        let lastSceneButton = document.getElementById(lastScene);
+                        lastSceneButton.style.backgroundColor = "gray";
+                        lastScene = currentScene;
+                        console.log("LL: " + lastScene);
+                    }
+                    else if(json["update-type"] == "RecordingStarting")
+                    {
+                        recButton.style.backgroundColor = "yellow";
+                    }
+                    else if(json["update-type"] == "RecordingStarted")
+                    {
+                        recButton.style.backgroundColor = "red";
+                        recButton.value = "REC Stop";
+                        pollStatus();
+                    }
+                    else if(json["update-type"] == "RecordingStopping")
+                    {
+                        recButton.style.backgroundColor = "yellow";
+                    }
+                    else if(json["update-type"] == "RecordingStopped")
+                    {
+                        recButton.style.backgroundColor = "gray";
+                        clearTimeout(polling);
+                        polling = null;
+                        recButton.value = "REC Start";
+                    }
+                    else if(json["update-type"] == "StreamingStarting")
+                    {
+                        liveButton.style.backgroundColor = "yellow";
+                    }
+                    else if(json["update-type"] == "StreamStarted")
+                    {
+                        liveButton.style.backgroundColor = "red";
+                        liveButton.value = "LIVE Stop";
+                    }
+                    else if(json["update-type"] == "StreamStopping")
+                    {
+                        liveButton.style.backgroundColor = "yellow";
+                    }
+                    else if(json["update-type"] == "StreamStopped")
+                    {
+                        liveButton.style.backgroundColor = "gray";
+                        liveButton.value = "LIVE Start";
+                    }
+                    else if(json["update-type"] == "StreamStatus")
+                    {
+                        liveTimecode.innerHTML = json["stream-timecode"];
+                    }
+                    else if(json.scenes != undefined)
+                    {
+                        if(json["current-scene"] != undefined)
+                        {
+                            lastScene = json["current-scene"].replace(/ /g, '') + "Scene";
+                        }    
+                        setScenes(json.scenes);
+                    }
+                    else if(json.sources != undefined && json.sources[0].typeId != undefined)
+                    {
+                        setMutes(json.sources);
+                    }
+                    else if(json.name != undefined)
+                    {
+                        if(json.muted != undefined)
+                        {
+                            let muteButton = document.getElementById(json.name + "Mute");
+                            if(json.muted)
+                            {
+                                muteButton.style.backgroundColor = "orange";
+                                muteButton.value = "Unmute";
+                            }
+                            else
+                            {
+                                muteButton.style.backgroundColor = "gray";
+                                muteButton.value = "Mute";
+                            }                          
+                        }
+                    }
+                    else if(json.recording != undefined && json.streaming != undefined)
+                    {
+                        if(json.recording == false)
+                        {
+                            recButton.style.backgroundColor = "gray";
+                        }
+                        else
+                        {
+                            recButton.style.backgroundColor = "red";
+                        }
+                        if(json.streaming == false)
+                        {
+                            liveButton.style.backgroundColor = "gray";
+                        }
+                        else
+                        {
+                            liveButton.style.backgroundColor = "red";
+                        }
+
+                    }
+                    else if(json.isRecording != undefined && json.recordTimecode != undefined && json.recordingFilename)
+                    {
+                        recTimecode.innerHTML = json.recordTimecode;
+                        recPath.innerHTML = json.recordingFilename;
+                    }
+                }
+                dataChannel.onopen = function()
+                {
+                    console.log("Data channel is open");
+
+                    setTimeout(() => 
+                    {
+                        let command = {};
+                        command["message-id"] = currentMessageId.toString() + clientName;
+                        command["request-type"] = "StartVirtualCam";
+                        sendOBS(command);
+                        currentMessageId ++;   
+
+                        command["message-id"] = currentMessageId.toString() + clientName;
+                        command["request-type"] = "GetSourcesList";
+                        sendOBS(command);
+                        currentMessageId ++;
+
+                        command["message-id"] = currentMessageId.toString() + clientName;
+                        command["request-type"] = "GetSceneList";
+                        sendOBS(command);
+                        currentMessageId ++;        
+
+                        command["message-id"] = currentMessageId.toString() + clientName;
+                        command["request-type"] = "GetCurrentScene";
+                        sendOBS(command);
+                        currentMessageId ++;
+                    }, 1000);    
+
+                }
+                dataChannel.onclose = function()
+                {
+                    document.getElementById("monitor").style.backgroundColor = "red";
+                    console.log("Data channel is closed");
+                    resetScenes();
+                    resetMutes();
+                    hangUp();
+                    remoteVideo.srcObject = null;
+                }
+
+                peer.ondatachannel = function(evt) 
+                {
+                    dataChannel = evt.channel;
+                };
+
+                return peer;
+            }
+
+            function sendSdp(sessionDescription) 
+            {
+                let message = JSON.stringify(sessionDescription);
+                ws.send(message);
+            }
+
+            function sendIceCandidate(candidate) 
+            {
+                let obj = { type: 'candidate', ice: candidate };
+                let message = JSON.stringify(obj);
+                ws.send(message);
+            }
+
+            function addIceCandidate(candidate) 
+            {
+                if (!peerConnection) 
+                {
+                    console.error('PeerConnection is not exist');
+                    return;
+                }
+                peerConnection.addIceCandidate(candidate);
+            }
+
+
+            clearInterval(reconnect);
+            reconnect = setInterval(function()
+            {
+                try
+                {
+                    if(ws == null)
+                    {
+                        ws = new WebSocket(wsUrl);
+                        ws.onopen = function(event) 
+                        {
+                            connect();
+                        };
+                        ws.onerror = function(error) 
+                        {
+                        };
+                        ws.onclose = function(event) 
+                        {
+                            ws = null;
+                            document.getElementById("monitor").style.backgroundColor = "red";
+                            connectSocket();
+                            peerConnection = null;
+                        };
+                        ws.onmessage = function(event) 
+                        {
+                            let message = JSON.parse(event.data);
+                            if (message.type === 'offer') 
+                            {
+                                let offer = new window.RTCSessionDescription(message);
+                                setOffer(offer);
+                            }
+                            if (message.type === 'answer') 
+                            {
+                                let answer = new window.RTCSessionDescription(message);
+                                setAnswer(answer);
+                            }
+                            if (message.type === 'candidate') 
+                            {
+                                let candidate = new window.RTCIceCandidate(message.ice);
+                                addIceCandidate(candidate);
+                            }
+                        };
+                    }
+                }
+                catch(e)
+                {
+                    console.log(e);
+                }
+            }, 2000);
+
+            function stopVideo() 
+            {
+                if (localStream == null) 
+                {
+                    return;
+                }
+                for (let track of localStream.getTracks()) 
+                {
+                    track.stop();
+                }
+                localStream = null;
+
+            }
+
+            function makeOffer() 
+            {
+                peerConnection = prepareNewConnection();
+                peerConnection.createOffer()
+                .then(function(sessionDescription) 
+                {
+                    console.log('-- createOffer() succsess in promise');
+                    return peerConnection.setLocalDescription(sessionDescription);
+                }).then(function() 
+                {
+                    console.log('-- setLocalDescription() succsess in promise');
+
+                    sendSdp(peerConnection.localDescription);
+                }).catch(function(error) 
+                {
+                    console.error(error);
+                });
+            }
+
+            function connect() 
+            {
+                if (peerConnection) 
+                {
+                    hangUp();
+                }
+                remoteVideo.srcObject = null;
+                makeOffer();
+                let offering = setInterval(function()
+                {
+                    if(remoteVideo.srcObject == null)
+                    {
+                        makeOffer();
+                    }
+                    else
+                    {
+                        clearInterval(offering);
+                    }
+                }, 5000);
+            }            
+
+            function setAnswer(sessionDescription) 
+            {
+                if (!peerConnection) 
+                {
+                    return;
+                }
+                peerConnection.setRemoteDescription(sessionDescription)
+                .then(function() 
+                {
+                    console.log('setRemoteDescription(answer) succsess in promise');
+                }).catch(function(error) 
+                {
+                    console.error('setRemoteDescription(answer) ERROR: ', error);
+                });
+            }
+
+            function setOffer(sessionDescription) 
+            {
+                if (peerConnection) 
+                {
+                }
+                peerConnection = prepareNewConnection();
+                peerConnection.setRemoteDescription(sessionDescription)
+                .then(function() 
+                {
+                    makeAnswer();
+                }).catch(function(error) 
+                {
+                    console.error('setRemoteDescription(offer) ERROR: ', error);
+                });
+            }
+
+            function makeAnswer() 
+            {
+                if (!peerConnection) 
+                {
+                    return;
+                }
+                peerConnection.createAnswer()
+                .then(function(sessionDescription) 
+                {
+                    console.log('createAnswer() succsess in promise');
+                    return peerConnection.setLocalDescription(sessionDescription);
+                }).then(function() 
+                {
+                    console.log('setLocalDescription() succsess in promise');
+
+                    // Trickle ICE > 初期SDPを送る.
+                    sendSdp(peerConnection.localDescription);
+
+                    // Vanilla ICE > まだSDPを送らない.
+                }).catch(function(error) {
+                    console.log(error);
+                });
+            }
+        }
+        connectSocket();
+    }
+</script>
+</body>
+</html>
