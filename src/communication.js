@@ -246,13 +246,13 @@ window.onload = function()
     let lastScene = "";
     let reconnect;
 
+    function sendOBS(command)
+    {
+        ws.send(JSON.stringify(command));
+    }
+
     function connectOBS()
     {
-        function sendOBS(command)
-        {
-            ws.send(command);
-        }
-
         clearInterval(reconnect);
         reconnect = setInterval(function()
         {
